@@ -1,8 +1,8 @@
 # login.py
 import tkinter as tk
 from tkinter import messagebox
+import re  # For email validation regex
 import db
-from main_app import MainApp
 import theme
 
 
@@ -28,6 +28,8 @@ class LoginWindow:
         # Inputs
         self.username_entry = self.create_input(self.frame, "Username")
         self.password_entry = self.create_input(self.frame, "Password", is_password=True)
+        # Bind "Enter" key to login function for better UX
+        self.password_entry.bind("<Return>", lambda e: self.login())
 
         # Buttons
         btn_frame = tk.Frame(self.frame, bg=theme.BG_COLOR)
@@ -63,24 +65,36 @@ class LoginWindow:
     def login(self):
         username = self.username_entry.get().strip()
         password = self.password_entry.get().strip()
+
+        # 1. Basic Validation
         if not username or not password:
-            messagebox.showwarning("Missing", "Enter details")
+            messagebox.showwarning("Missing Details", "Please enter both username and password.")
             return
+
+        # 2. Check DB (Includes Hashing check as per instructions)
         user = db.find_user(username, password)
+
         if user:
             self.frame.destroy()
+            # --- CIRCULAR IMPORT FIX ---
+            # We import MainApp HERE instead of at the top.
+            # This prevents the "ImportError" because main_app also imports login.
+            from main_app import MainApp
             MainApp(self.root, user)
         else:
-            messagebox.showerror("Error", "Invalid credentials")
+            messagebox.showerror("Login Failed", "Invalid username or password.\nPlease try again.")
 
     # ---------------------------------------------------------
-    # NEW REGISTRATION WINDOW
+    # REGISTRATION WINDOW (With Validation & Error Handling)
     # ---------------------------------------------------------
     def open_register_window(self):
         reg = tk.Toplevel(self.root)
         reg.title("Create Account")
-        reg.geometry("450x650")
+        reg.geometry("450x680")  # Taller for errors
         reg.configure(bg=theme.BG_COLOR)
+
+        # Make it modal (user must finish here before going back)
+        reg.grab_set()
 
         # Header
         tk.Label(reg, text="Join Us", font=("Segoe UI", 22, "bold"),
@@ -90,7 +104,6 @@ class LoginWindow:
         form = tk.Frame(reg, bg=theme.BG_COLOR, padx=30)
         form.pack(fill="both", expand=True)
 
-        # Helper for clean inputs in popup
         def add_field(label, is_pass=False):
             tk.Label(form, text=label, font=("Segoe UI", 9, "bold"),
                      bg=theme.BG_COLOR, fg=theme.TEXT_COLOR).pack(anchor="w", pady=(10, 2))
@@ -118,27 +131,50 @@ class LoginWindow:
             p = pass_e.get().strip()
             c = conf_e.get().strip()
 
-            # Validation
-            if not f or not l or not e or not u or not p:
+            # --- VALIDATION LAYER ---
+
+            # 1. Empty Check
+            if not all([f, l, e, u, p, c]):
                 messagebox.showwarning("Missing Info", "Please fill in all fields.")
                 return
 
+            # 2. Email Validation (Regex)
+            # Checks for standard format: text @ text . text
+            if not re.match(r"[^@]+@[^@]+\.[^@]+", e):
+                messagebox.showwarning("Invalid Email", "Please enter a valid email address.")
+                return
+
+            # 3. Password Match
             if p != c:
                 messagebox.showerror("Password Error", "Passwords do not match.")
                 return
 
-            if len(p) < 4:
-                messagebox.showwarning("Weak Password", "Password must be at least 4 characters.")
+            # 4. Password Strength
+            if len(p) < 6:
+                messagebox.showwarning("Weak Password", "Password must be at least 6 characters long.")
                 return
 
-            # Save to DB
-            uid = db.create_user(f, l, e, u, p)
+            # 5. Username Validation (Alphanumeric only to prevent SQL issues/messy data)
+            if not u.isalnum():
+                messagebox.showwarning("Invalid Username", "Username must only contain letters and numbers.")
+                return
 
-            if uid:
-                messagebox.showinfo("Success", "Account created successfully! Please login.")
-                reg.destroy()
-            else:
-                messagebox.showerror("Error", "Username already exists. Please choose another.")
+            # --- DATABASE LAYER ---
+            try:
+                # db.create_user handles the Hashing (Requirement 2b)
+                uid = db.create_user(f, l, e, u, p)
+
+                if uid:
+                    messagebox.showinfo("Success", "Account created successfully!\nYou can now login.")
+                    reg.destroy()
+                else:
+                    # db.create_user returns None if username exists
+                    messagebox.showerror("Registration Failed",
+                                         "That username is already taken.\nPlease choose another.")
+
+            except Exception as err:
+                # Catch-all error handling for database locks or unexpected crashes
+                messagebox.showerror("System Error", f"An unexpected error occurred:\n{err}")
 
         # Submit Button
         tk.Button(reg, text="Sign Up", bg=theme.ACCENT_COLOR, fg="white",

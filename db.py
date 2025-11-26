@@ -2,7 +2,7 @@
 import sqlite3
 import hashlib
 
-DB_NAME = "my_app_db.sqlite"
+DB_NAME = "entertainment_app_v2.sqlite"
 
 
 def initialize_db():
